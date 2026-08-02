@@ -103,7 +103,15 @@ export default function Assignments() {
           {assignments.map((item) => {
             const isDone = item.status === 'SUBMITTED' || item.status === 'GRADED'
             return (
-              <Card key={item.id} className="flex flex-col justify-between gap-4 p-6">
+              <Card
+                key={item.id}
+                onClick={() => {
+                  setSelectedAssignment(item)
+                  setSubmissionText(item.submission || '')
+                  setShowSubmitModal(true)
+                }}
+                className="flex flex-col justify-between gap-4 p-6 cursor-pointer hover:border-sf-primary transition"
+              >
                 <div className="flex flex-col gap-2">
                   <div className="flex items-center justify-between">
                     <span className="text-[10px] font-bold uppercase tracking-[1px] text-sf-primary">
@@ -136,8 +144,10 @@ export default function Assignments() {
                     <Button
                       variant={isDone ? 'ghost' : 'primary'}
                       size="small"
-                      onClick={() => {
+                      onClick={(e) => {
+                        e.stopPropagation()
                         setSelectedAssignment(item)
+                        setSubmissionText(item.submission || '')
                         setShowSubmitModal(true)
                       }}
                     >
