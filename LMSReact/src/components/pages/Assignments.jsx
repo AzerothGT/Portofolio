@@ -1,30 +1,37 @@
 import { useEffect, useState } from 'react'
 import { assignmentsApi } from '../../api/assignments'
+import { coursesApi } from '../../api/courses'
 import { useAuth } from '../../context/AuthContext'
 import Button from '../shared/Button'
 import Card from '../shared/Card'
 import Modal from '../shared/Modal'
 import TextField from '../shared/TextField'
-import { CheckCircleIcon, ClockIcon, PlusIcon } from '@phosphor-icons/react'
+import { CheckCircleIcon, ClockIcon, PlusIcon, TrashIcon, PencilIcon, CheckIcon } from '@phosphor-icons/react'
 
 export default function Assignments() {
   const { user } = useAuth()
   const [assignments, setAssignments] = useState([])
+  const [courses, setCourses] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
   // Modals state
   const [showSubmitModal, setShowSubmitModal] = useState(false)
   const [showCreateModal, setShowCreateModal] = useState(false)
+  const [showGradeModal, setShowGradeModal] = useState(false)
   const [selectedAssignment, setSelectedAssignment] = useState(null)
 
   // Forms
   const [submissionText, setSubmissionText] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
+  const [gradeInput, setGradeInput] = useState('')
+  const [grading, setGrading] = useState(false)
+
   const [createForm, setCreateForm] = useState({
     title: '',
     course_title: '',
+    course_id: '',
     due_date: '',
     max_points: 100,
     instructions: '',
@@ -33,9 +40,14 @@ export default function Assignments() {
 
   function load() {
     setLoading(true)
-    assignmentsApi
-      .list()
-      .then((data) => setAssignments(Array.isArray(data) ? data : []))
+    Promise.all([
+      assignmentsApi.list(),
+      coursesApi.list().catch(() => []),
+    ])
+      .then(([assData, courseData]) => {
+        setAssignments(Array.isArray(assData) ? assData : [])
+        setCourses(Array.isArray(courseData) ? courseData : [])
+      })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false))
   }
@@ -58,18 +70,44 @@ export default function Assignments() {
     }
   }
 
+  async function handleGrade(e) {
+    e.preventDefault()
+    if (!selectedAssignment) return
+    setGrading(true)
+    try {
+      await assignmentsApi.grade(selectedAssignment.id, { grade: Number(gradeInput) })
+      setShowGradeModal(false)
+      setGradeInput('')
+      load()
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setGrading(false)
+    }
+  }
+
   async function handleCreate(e) {
     e.preventDefault()
     setCreating(true)
     try {
       await assignmentsApi.create(createForm)
       setShowCreateModal(false)
-      setCreateForm({ title: '', course_title: '', due_date: '', max_points: 100, instructions: '' })
+      setCreateForm({ title: '', course_title: '', course_id: '', due_date: '', max_points: 100, instructions: '' })
       load()
     } catch (err) {
       setError(err.message)
     } finally {
       setCreating(false)
+    }
+  }
+
+  async function handleDelete(id) {
+    if (!confirm('Are you sure you want to delete this assignment?')) return
+    try {
+      await assignmentsApi.delete(id)
+      load()
+    } catch (err) {
+      setError(err.message)
     }
   }
 
@@ -107,8 +145,13 @@ export default function Assignments() {
                 key={item.id}
                 onClick={() => {
                   setSelectedAssignment(item)
-                  setSubmissionText(item.submission || '')
-                  setShowSubmitModal(true)
+                  if (isStaff) {
+                    setGradeInput(item.grade != null ? String(item.grade) : '')
+                    setShowGradeModal(true)
+                  } else {
+                    setSubmissionText(item.submission || '')
+                    setShowSubmitModal(true)
+                  }
                 }}
                 className="flex flex-col justify-between gap-4 p-6 cursor-pointer hover:border-sf-primary transition"
               >
@@ -119,7 +162,11 @@ export default function Assignments() {
                     </span>
                     <span
                       className={`flex items-center gap-1 rounded px-2 py-0.5 text-[10px] font-bold tracking-[1px] ${
-                        isDone ? 'bg-[#87d300]/20 text-[#609400]' : 'bg-[#ffcc00]/20 text-[#a38200]'
+                        item.status === 'GRADED'
+                          ? 'bg-[#87d300]/20 text-[#609400]'
+                          : isDone
+                          ? 'bg-[#0091c3]/20 text-[#006f96]'
+                          : 'bg-[#ffcc00]/20 text-[#a38200]'
                       }`}
                     >
                       {isDone ? <CheckCircleIcon size={14} /> : <ClockIcon size={14} />}
@@ -140,7 +187,32 @@ export default function Assignments() {
                     )}
                   </div>
 
-                  {!isStaff && (
+                  {isStaff ? (
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="ghost"
+                        size="small"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setSelectedAssignment(item)
+                          setGradeInput(item.grade != null ? String(item.grade) : '')
+                          setShowGradeModal(true)
+                        }}
+                      >
+                        <CheckIcon size={14} className="mr-1 inline" /> REVIEW / GRADE
+                      </Button>
+                      <Button
+                        variant="danger"
+                        size="small"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleDelete(item.id)
+                        }}
+                      >
+                        <TrashIcon size={14} />
+                      </Button>
+                    </div>
+                  ) : (
                     <Button
                       variant={isDone ? 'ghost' : 'primary'}
                       size="small"
@@ -161,7 +233,7 @@ export default function Assignments() {
         </div>
       )}
 
-      {/* Submit Assignment Modal */}
+      {/* Student Submit Assignment Modal */}
       <Modal open={showSubmitModal} onClose={() => setShowSubmitModal(false)} title="SUBMIT ASSIGNMENT">
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <p className="m-0 text-xs font-bold text-sf-secondary-text">{selectedAssignment?.title}</p>
@@ -184,6 +256,43 @@ export default function Assignments() {
         </form>
       </Modal>
 
+      {/* Staff Grade & Review Modal */}
+      <Modal open={showGradeModal} onClose={() => setShowGradeModal(false)} title="REVIEW & GRADE SUBMISSION">
+        <form onSubmit={handleGrade} className="flex flex-col gap-4">
+          <div className="flex flex-col gap-1">
+            <h4 className="m-0 font-black text-sm">{selectedAssignment?.title}</h4>
+            <span className="text-xs text-sf-secondary-text">Course: {selectedAssignment?.course_title}</span>
+          </div>
+
+          <div className="rounded-lg bg-sf-secondary-bg/60 p-4 flex flex-col gap-2">
+            <span className="text-[10px] font-bold tracking-[1px] text-sf-secondary-text uppercase">
+              STUDENT SUBMISSION CONTENT
+            </span>
+            <p className="m-0 text-xs font-mono whitespace-pre-wrap leading-relaxed text-sf-text">
+              {selectedAssignment?.submission || '(No work submitted yet)'}
+            </p>
+          </div>
+
+          <TextField
+            label={`ASSIGN GRADE (0 - ${selectedAssignment?.max_points || 100})`}
+            type="number"
+            placeholder="Enter numeric grade..."
+            value={gradeInput}
+            onChange={(e) => setGradeInput(e.target.value)}
+            required
+          />
+
+          <div className="flex justify-end gap-3 pt-2">
+            <Button variant="ghost" size="medium" type="button" onClick={() => setShowGradeModal(false)}>
+              CANCEL
+            </Button>
+            <Button variant="primary" size="medium" type="submit" disabled={grading}>
+              {grading ? 'SAVING GRADE...' : 'SAVE GRADE'}
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
       {/* Create Assignment Modal (Staff) */}
       <Modal open={showCreateModal} onClose={() => setShowCreateModal(false)} title="CREATE ASSIGNMENT">
         <form onSubmit={handleCreate} className="flex flex-col gap-4">
@@ -194,6 +303,32 @@ export default function Assignments() {
             onChange={(e) => setCreateForm({ ...createForm, title: e.target.value })}
             required
           />
+
+          {courses.length > 0 ? (
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-bold text-sf-secondary-text">SELECT COURSE</label>
+              <select
+                className="w-full rounded-md border border-sf-divider bg-sf-secondary-bg px-3 py-2 text-sm text-sf-text focus:outline-none focus:ring-1 focus:ring-sf-primary"
+                value={createForm.course_id}
+                onChange={(e) => {
+                  const selectedCourse = courses.find((c) => String(c.id) === e.target.value)
+                  setCreateForm({
+                    ...createForm,
+                    course_id: e.target.value,
+                    course_title: selectedCourse ? selectedCourse.title : createForm.course_title,
+                  })
+                }}
+              >
+                <option value="">-- Choose a course --</option>
+                {courses.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.title}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
+
           <TextField
             label="COURSE TITLE"
             placeholder="e.g. Fullstack Web Development"
@@ -201,6 +336,7 @@ export default function Assignments() {
             onChange={(e) => setCreateForm({ ...createForm, course_title: e.target.value })}
             required
           />
+
           <div className="flex gap-4">
             <TextField
               label="DUE DATE"

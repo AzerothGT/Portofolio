@@ -18,11 +18,15 @@ class AssignmentController extends Controller
 
         if ($search = $request->query('search')) {
             $query->where('title', 'like', "%{$search}%")
-                  ->orWhere('course_title', 'like', "%{$search}%");
+                ->orWhere('course_title', 'like', "%{$search}%");
         }
 
         if ($status = $request->query('status')) {
             $query->where('status', $status);
+        }
+
+        if ($courseId = $request->query('course_id')) {
+            $query->where('course_id', $courseId);
         }
 
         $assignments = AssignmentResource::collection($query->latest()->get());
@@ -102,6 +106,25 @@ class AssignmentController extends Controller
         return $this->resourceResponse(
             new AssignmentResource($assignment),
             'Tugas berhasil dikirimkan'
+        );
+    }
+
+    public function grade(Request $request, $id): JsonResponse
+    {
+        $assignment = Assignment::findOrFail($id);
+
+        $validated = $request->validate([
+            'grade' => 'required|integer|min:0|max:'.($assignment->max_points ?? 100),
+        ]);
+
+        $assignment->update([
+            'status' => 'GRADED',
+            'grade' => $validated['grade'],
+        ]);
+
+        return $this->resourceResponse(
+            new AssignmentResource($assignment),
+            'Tugas berhasil dinilai'
         );
     }
 
